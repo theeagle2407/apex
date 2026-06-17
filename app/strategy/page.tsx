@@ -34,12 +34,19 @@ export default function StrategyPage() {
   const r = computeStrategy({ deposit, basePlpApy, hedgeRatio: hedgeRatio / 100, crashProtection });
 
   // Split: most of the deposit supplies PLP, a slice funds the hedge premium.
-  const hedgeBudget = Math.max(1, Math.round(deposit * (hedgeRatio / 100) * 0.5));
-  const supplyBudget = Math.max(0, deposit - hedgeBudget);
+  // Enforce a floor so neither leg rounds to an invalid (zero/tiny) amount —
+  // predict::supply aborts on a zero supply amount.
+  const MIN_DEPOSIT = 5;
+  const effectiveDeposit = Math.max(deposit, 0);
+  const rawHedge = effectiveDeposit * Math.min(hedgeRatio / 100, 0.3) * 0.5;
+  const hedgeBudget = effectiveDeposit >= MIN_DEPOSIT ? Math.max(1, Math.round(rawHedge)) : 0;
+  const supplyBudget = Math.max(0, effectiveDeposit - hedgeBudget);
 
   const runVault = async () => {
     if (!account) { setStatus('error'); setMessage('Connect your wallet first.'); return; }
     if (deposit <= 0) { setStatus('error'); setMessage('Enter a deposit amount.'); return; }
+    if (deposit < MIN_DEPOSIT) { setStatus('error'); setMessage(`Minimum deposit is $${MIN_DEPOSIT} — the vault splits your deposit across PLP and the hedge, so it needs enough to fund both legs.`); return; }
+    if (supplyBudget < 1) { setStatus('error'); setMessage('Supply amount too small after the hedge split. Increase your deposit.'); return; }
     setStatus('pending'); setMessage('Checking your DUSDC…');
 
     const coin = await findDusdcCoin(client, account.address);
@@ -111,7 +118,7 @@ export default function StrategyPage() {
               <label style={{ fontSize: '13px', color: 'var(--muted2)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Deposit (DUSDC)</label>
               <div style={{ position: 'relative', marginBottom: '24px' }}>
                 <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '16px', fontWeight: 700, color: 'var(--muted)' }}>$</span>
-                <input type="number" min="0" value={deposit} onChange={e => setDeposit(Number(e.target.value) || 0)}
+                <input type="number" min="5" value={deposit} onChange={e => setDeposit(Number(e.target.value) || 0)}
                   style={{ width: '100%', padding: '13px 14px 13px 30px', borderRadius: '11px', border: '1px solid var(--border2)', background: 'var(--bg2)', color: 'var(--text)', fontSize: '17px', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
